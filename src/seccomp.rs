@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use nix::sys::ptrace;
+use nix::sys::ptrace::{self, AddressType};
 use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::{execvp, fork, ForkResult};
 use syscalls::Sysno;
@@ -78,7 +78,7 @@ pub fn check(binary: String, args: Vec<String>) -> Result<()> {
                                             _ => unreachable!()
                                         };
                                         
-                                        let flag = rdi;
+                                        let flags = rsi;
                                         
                                         // TODO
                                         // SECCOMP_SET_MODE_FILTER
@@ -87,7 +87,7 @@ pub fn check(binary: String, args: Vec<String>) -> Result<()> {
                                         }
                                         
                                         
-                                        println!("seccomp({}, {}, {:#X})", op, flag, rdx);
+                                        println!("seccomp({}, {}, {:#X})", op, flags, rdx);
                                     },
                                     _ => {}
                                 }
