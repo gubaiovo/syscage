@@ -80,10 +80,35 @@ pub fn check(binary: String, args: Vec<String>) -> Result<()> {
                                         
                                         let flags = rsi;
                                         
-                                        // TODO
-                                        // SECCOMP_SET_MODE_FILTER
-                                        if rdi == 2 {
-                                            
+                                        match op {
+                                            "SECCOMP_SET_MODE_FILTER" => {
+                                                if flags == 0 {
+                                                    let len = ptrace::read(pid, rdx as AddressType).unwrap();
+                                                    println!("Seccomp ruler len: {}", len);
+                                                    
+                                                    let filter_ptr = ptrace::read(pid, (rdx+12) as AddressType).unwrap() << 32 |
+                                                        ptrace::read(pid, (rdx+8) as AddressType).unwrap();
+                                                    
+                                                    let filter: Vec<i64> = (0..=len)
+                                                        .map(|i| ptrace::read(pid, (filter_ptr + 8*i) as AddressType).unwrap())
+                                                        .collect();
+                                                    
+                                                    print!("rule: ");
+                                                    for rule in filter.iter() {
+                                                        println!("{:#X}", rule);
+                                                    }
+                                                    
+                                                    // TODO: explain the rule code
+                                                    println!("");
+                                                    
+                                                    println!("Seccomp load!")
+                                                }
+                                            },
+                                            "SECCOMP_GET_ACTION_AVAIL" => {
+                                                let rule = ptrace::read(pid, rdx as AddressType).unwrap() as u32;
+                                                println!("rule check: {:#X}", rule);
+                                            },
+                                            _ => {}
                                         }
                                         
                                         
