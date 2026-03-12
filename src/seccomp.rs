@@ -6,20 +6,26 @@ use syscalls::Sysno;
 use std::ffi::{CString, CStr};
 use libc::user_regs_struct;
 
+const X86_64 : u32 = 0xc000003e;
+const I386   : u32 = 0x40000003;
+
 const SECCOMP_SET_MODE_FILTER : u64 = 1;
 
-const SECCOMP_RET_KILL  : u32 = 0x80000000;
+const SECCOMP_RET_KILL  : u32 = 0;
 const SECCOMP_RET_ALLOW : u32 = 0x7fff0000;
 
 const PR_SET_NO_NEW_PRIVS : u64 = 38;
 
 const BPF_LD   : u16 = 0x00;
+const BPF_ALU  : u16 = 0x04;
 const BPF_JMP  : u16 = 0x05;
 const BPF_RET  : u16 = 0x06;
     
 const BPF_W    : u16 = 0x00;
 
 const BPF_ABS  : u16 = 0x20;
+
+const BPF_AND  : u16 = 0x50;
 
 const BPF_JA   : u16 = 0x00;
 const BPF_JEQ  : u16 = 0x10;
@@ -28,6 +34,7 @@ const BPF_JGE  : u16 = 0x30;
 const BPF_JSET : u16 = 0x40;
 
 const BPF_K    : u16 = 0x00;
+
 
 struct SockFilter {
     code : u16,
@@ -61,12 +68,20 @@ impl SockFilter {
             .collect()
     }
     
+    #[allow(unused)]
     fn print_raw(self: &Self) {
         println!("{:#06X} {:#04X} {:#04X} {:#010X}", self.code, self.jt, self.jf, self.k);
     }
 }
 
-#[allow(unused)]
+
+fn get_digits(n: usize) -> usize {
+    if n == 0 { return 1; }
+    // 基础的数学方法：计算 10 的幂次方
+    (n as f64).log10().floor() as usize + 1
+}
+
+
 fn show_rule(rules: &Vec<SockFilter>) {
     
     const BPF_LD_W_ABS   : u16 = BPF_LD | BPF_W | BPF_ABS;
@@ -76,55 +91,85 @@ fn show_rule(rules: &Vec<SockFilter>) {
     const BPF_JMP_JGE_K  : u16 = BPF_JMP | BPF_JGE | BPF_K;
     const BPF_JMP_JGT_K  : u16 = BPF_JMP | BPF_JGT | BPF_K;
     const BPF_JMP_JSET_K : u16 = BPF_JMP | BPF_JSET | BPF_K;
+    const BPF_ALU_AND_K  : u16 = BPF_ALU | BPF_AND | BPF_K;
     
-
+    let width = get_digits(rules.len()-1);
+    
+    println!();
+    println!("=== Seccomp rules===");
+    
+    let mut is_syscall = false;
     for line in 0..rules.len() {
-        print!("{:6}: ", line);
+        print!("{:w$}: ", line, w=width);
         
         match rules[line].code {
             BPF_LD_W_ABS => {
                 match rules[line].k {
                     0 => {
-                        print!("val = syscall number(nr)")  
+                        println!("val = syscall number(nr)");
+                        is_syscall = true;
                     },
                     4 => {
-                        print!("val = arch")
+                        println!("val = arch");
                     },
-                    _ => unreachable!()
+                    _ => { todo!() }
                 }
             },
             BPF_RET_K => {
                 match rules[line].k {
                     SECCOMP_RET_ALLOW => println!("return allow"),
-                    SECCOMP_RET_KILL => print!("return kill"),
+                    SECCOMP_RET_KILL => println!("return kill"),
                     _ => unreachable!()
                 }
             },
             BPF_JMP_JA => {
-                print!("jmp {}", line + rules[line].k as usize);
+                println!("jmp {}", line + 1 + rules[line].k as usize);
             },
             BPF_JMP_JEQ_K | BPF_JMP_JGE_K | BPF_JMP_JGT_K | BPF_JMP_JSET_K => {
+                let cmps = ["==", "!=", ">=", "<", ">", "<="];
+                
+                if rules[line].jt != 0 && rules[line].jf != 0 {
+                    println!("something is wrong. plz push the author of syscall");
+                    return;
+                }
+                
+                let (mut idx, jmp_size) = if rules[line].jt != 0 {
+                    (0, rules[line].jt)
+                } else {
+                    (1, rules[line].jf)
+                };
+                
                 match rules[line].code & 0xf0 {
-                    BPF_JEQ => {
-                        todo!()
-                    },
+                    BPF_JEQ | BPF_JSET => {},
                     BPF_JGE => {
-                        todo!()
+                        idx += 2;
                     },
                     BPF_JGT => {
-                        todo!()
-                    },
-                    BPF_JSET => {
-                        todo!()
+                        idx += 4;
                     },
                     _ => unreachable!()
                 };
+                
+                if is_syscall {
+                    if let Some(syscall) = Sysno::new(rules[line].k as usize) {
+                        println!("if (val {} {}) jmp {}", cmps[idx], syscall.name(), line as u8 + 1 +jmp_size);
+                    } else {
+                        println!("if (val {} {:#X}) jmp {}", cmps[idx], rules[line].k, line as u8 + 1 +jmp_size);
+                    } 
+                } else {
+                    println!("if (val {} {:#X}) jmp {}", cmps[idx], rules[line].k, line as u8 + 1 +jmp_size);
+                }
+            },
+            BPF_ALU_AND_K => {
+                println!("val = val & {:#X}",rules[line].k);
             }
             
             _ => unreachable!()
         }
     }
+    println!();
 }
+
 
 fn is_set_no_new_prevs(regs: &user_regs_struct) -> bool {
     regs.rdi == PR_SET_NO_NEW_PRIVS as u64
@@ -133,7 +178,6 @@ fn is_set_no_new_prevs(regs: &user_regs_struct) -> bool {
     && regs.r10 == 0
     && regs.r8 == 0
 }
-
 
 
 pub fn check(binary: String, args: Vec<String>) -> Result<()> {
@@ -190,7 +234,7 @@ pub fn check(binary: String, args: Vec<String>) -> Result<()> {
                                 match syscall {
                                     Sysno::prctl => {
                                         if is_set_no_new_prevs(&regs) {
-                                            println!("Clear the prev filter!")
+                                            // println!("Clear the prev filter!")
                                         }
                                     },
                                     Sysno::seccomp => {
@@ -201,9 +245,13 @@ pub fn check(binary: String, args: Vec<String>) -> Result<()> {
                                         if op == SECCOMP_SET_MODE_FILTER as u64 && flags == 0 {
                                             let rules : Vec<SockFilter> = SockFilter::create_all(pid, regs.rdx as AddressType);
                                             
-                                            for rule in rules {
-                                                rule.print_raw();
-                                            }
+                                            // for rule in rules {
+                                            //     rule.print_raw();
+                                            // }
+                                            
+                                            show_rule(&rules);
+                                            
+                                            
                                             println!("Seccomp load!")
                                         }
                                     },
@@ -226,9 +274,5 @@ pub fn check(binary: String, args: Vec<String>) -> Result<()> {
             println!("Fork failed")
         }
     }
-    
-    
-    println!("[!] seccomp extraction not implemented yet");
-
     Ok(())
 }
