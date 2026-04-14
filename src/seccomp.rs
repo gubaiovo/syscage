@@ -36,6 +36,11 @@ const BPF_JSET : u16 = 0x40;
 const BPF_K    : u16 = 0x00;
 
 
+enum CheckType {
+    Syscall,
+    Arch
+}
+
 struct SockFilter {
     code : u16,
     jt : u8,
@@ -98,7 +103,7 @@ fn show_rule(rules: &Vec<SockFilter>) {
     println!();
     println!("=== Seccomp rules===");
     
-    let mut is_syscall = false;
+    let mut check_type: Option<CheckType> = None;
     for line in 0..rules.len() {
         print!("{:w$}: ", line, w=width);
         
@@ -107,10 +112,11 @@ fn show_rule(rules: &Vec<SockFilter>) {
                 match rules[line].k {
                     0 => {
                         println!("val = syscall number(nr)");
-                        is_syscall = true;
+                        check_type = Some(CheckType::Syscall);
                     },
                     4 => {
                         println!("val = arch");
+                        check_type = Some(CheckType::Arch);
                     },
                     _ => { todo!() }
                 }
@@ -150,14 +156,22 @@ fn show_rule(rules: &Vec<SockFilter>) {
                     _ => unreachable!()
                 };
                 
-                if is_syscall {
-                    if let Some(syscall) = Sysno::new(rules[line].k as usize) {
-                        println!("if (val {} {}) jmp {}", cmps[idx], syscall.name(), line as u8 + 1 +jmp_size);
-                    } else {
-                        println!("if (val {} {:#X}) jmp {}", cmps[idx], rules[line].k, line as u8 + 1 +jmp_size);
-                    } 
-                } else {
-                    println!("if (val {} {:#X}) jmp {}", cmps[idx], rules[line].k, line as u8 + 1 +jmp_size);
+                match check_type {
+                    Some(CheckType::Syscall) => {
+                        if let Some(syscall) = Sysno::new(rules[line].k as usize) {
+                            println!("if (val {} {}) jmp {}", cmps[idx], syscall.name(), line as u8 + 1 +jmp_size);
+                        } else {
+                            println!("if (val {} {:#X}) jmp {}", cmps[idx], rules[line].k, line as u8 + 1 +jmp_size);
+                        }
+                    },
+                    Some(CheckType::Arch) => {
+                        match rules[line].k {
+                            X86_64 => println!("if (val {} X86_64) jmp {}", cmps[idx], line as u8 + 1 +jmp_size),
+                            I386 => println!("if (val {} I386) jmp {}", cmps[idx], line as u8 + 1 +jmp_size),
+                            _ => println!("if (val {} {:#X}) jmp {}", cmps[idx], rules[line].k, line as u8 + 1 +jmp_size)
+                        }
+                    }
+                    _ => println!("if (val {} {:#X}) jmp {}", cmps[idx], rules[line].k, line as u8 + 1 +jmp_size)
                 }
             },
             BPF_ALU_AND_K => {
