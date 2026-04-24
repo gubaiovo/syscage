@@ -1,9 +1,7 @@
-/target
+target/
+test/
 
-/test
+vendor/
 
 .codex
-
-vendor
-
 .cargo

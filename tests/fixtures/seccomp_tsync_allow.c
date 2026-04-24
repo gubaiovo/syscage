@@ -5,7 +5,6 @@
 #include <linux/seccomp.h>
 #include <stddef.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
 #include <unistd.h>
