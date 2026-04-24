@@ -60,8 +60,8 @@ fn prctl_filter_is_detected() {
     let output = run_syscage(&fixture, &[]);
 
     assert!(output.contains("prctl(PR_SET_SECCOMP)"));
-    assert!(output.contains("return kill_process"));
-    assert!(output.contains("return allow"));
+    assert!(output.contains("return KILL_PROCESS"));
+    assert!(output.contains("return ALLOW"));
 }
 
 #[test]
@@ -79,7 +79,7 @@ fn poisoned_padding_does_not_break_program_length_parsing() {
     let fixture = build_fixture("seccomp_padding_poison");
     let output = run_syscage(&fixture, &[]);
 
-    assert!(output.contains("0: return allow"));
+    assert!(output.contains("0000: 0x06 0x00 0x00 0x7fff0000  return ALLOW"));
     assert!(!output.contains("capacity overflow"));
 }
 
@@ -89,6 +89,6 @@ fn jset_and_errno_are_decoded() {
     let fixture = build_fixture("seccomp_jset_errno");
     let output = run_syscage(&fixture, &[]);
 
-    assert!(output.contains("jset"));
-    assert!(output.contains("return errno(1)"));
+    assert!(output.contains("if ((A & 0x40000000) == 0) goto 0003"));
+    assert!(output.contains("return ERRNO(1)"));
 }
